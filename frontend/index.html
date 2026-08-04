@@ -66,7 +66,7 @@
   .controls { margin-top: 20px; }
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
-  .field input[type=number], .field input[type=file], textarea {
+  .field input[type=number], .field input[type=file], .field input[type=text], textarea {
     width: 100%; background: var(--panel-2); border: 1px solid var(--border);
     color: var(--text); border-radius: 8px; padding: 9px 10px; font-size: 13px; font-family: inherit;
   }
@@ -142,6 +142,15 @@
       <div class="divider">— or paste text —</div>
       <div class="field">
         <textarea id="paste" placeholder="Paste raw text here…"></textarea>
+      </div>
+      <div class="divider">— or load from S3 —</div>
+      <div class="field">
+        <label for="s3Uri">S3 URI</label>
+        <input type="text" id="s3Uri" placeholder="s3://my-bucket/path/to/document.pdf or s3://my-bucket/path/to/folder/" />
+      </div>
+      <div class="field">
+        <label for="s3Region">AWS Region (optional)</label>
+        <input type="text" id="s3Region" placeholder="us-east-1" />
       </div>
 
       <h2 style="margin-top:18px">Parameters</h2>
@@ -226,9 +235,14 @@ function setFile(f) {
   pickedFile = f;
   $("filename").textContent = "📄 " + f.name;
   $("paste").value = "";
+  $("s3Uri").value = "";
+  $("s3Region").value = "";
 }
 $("paste").addEventListener("input", () => {
-  if ($("paste").value.trim()) { pickedFile = null; $("filename").textContent = ""; $("file").value = ""; }
+  if ($("paste").value.trim()) { pickedFile = null; $("filename").textContent = ""; $("file").value = ""; $("s3Uri").value = ""; $("s3Region").value = ""; }
+});
+$("s3Uri").addEventListener("input", () => {
+  if ($("s3Uri").value.trim()) { pickedFile = null; $("filename").textContent = ""; $("file").value = ""; $("paste").value = ""; }
 });
 
 // ---- run ----
@@ -239,8 +253,12 @@ async function runChunking() {
   const size = parseInt($("size").value, 10);
   const overlap = parseInt($("overlap").value, 10);
   const paste = $("paste").value.trim();
+  const s3Uri = $("s3Uri").value.trim();
+  const s3Region = $("s3Region").value.trim();
+  const sourceCount = [pickedFile, paste, s3Uri].filter(Boolean).length;
 
-  if (!pickedFile && !paste) return showError("Upload a file or paste some text first.");
+  if (sourceCount === 0) return showError("Upload a file, paste text, or provide an S3 URI first.");
+  if (sourceCount > 1) return showError("Use exactly one source: file, text, or S3 URI.");
   if (!(size > 0)) return showError("Chunk size must be a positive number.");
   if (overlap < 0 || overlap >= size) return showError("Overlap must be ≥ 0 and less than chunk size.");
 
@@ -249,7 +267,11 @@ async function runChunking() {
   fd.append("chunk_size", size);
   fd.append("chunk_overlap", overlap);
   if (pickedFile) fd.append("file", pickedFile);
-  else fd.append("text", paste);
+  else if (paste) fd.append("text", paste);
+  else {
+    fd.append("s3_uri", s3Uri);
+    if (s3Region) fd.append("s3_region", s3Region);
+  }
 
   btn.disabled = true;
   const original = btn.textContent;

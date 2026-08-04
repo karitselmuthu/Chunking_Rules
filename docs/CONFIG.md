@@ -1,8 +1,22 @@
 # Configuration Guide
 
+## Core LLM Configuration
+
+The agentic chunking strategy now uses Gemini directly over the Google
+Generative Language API. Configure the provider and model in `.env`:
+
+```env
+CHUNKING_LLM_MODEL=gemini-2.5-flash
+GEMINI_API_KEY=your-gemini-api-key
+```
+
+- `GEMINI_API_KEY` enables real agentic chunking.
+- When `GEMINI_API_KEY` is not set, the app falls back to rule-based chunking.
+- `CHUNKING_LLM_MODEL` selects the Gemini model used by `agentic_chunk()`.
+
 ## LLM Sampling Parameters
 
-The application now supports configurable sampling parameters for the LLM-based agentic chunking strategy. These parameters control how the Claude language model generates chunks.
+The application now supports configurable sampling parameters for the LLM-based agentic chunking strategy. These parameters control how the Gemini language model generates chunks.
 
 ### Environment Variables
 
@@ -78,6 +92,8 @@ CHUNKING_LLM_TOP_K=0
 
 2. **Edit .env with your desired sampling parameters:**
    ```env
+   GEMINI_API_KEY=your-gemini-api-key
+   CHUNKING_LLM_MODEL=gemini-2.5-flash
    CHUNKING_LLM_TOP_P=0.9
    CHUNKING_LLM_TOP_K=40
    ```
@@ -88,5 +104,21 @@ CHUNKING_LLM_TOP_K=0
 
 - Parameters are loaded as floats/ints with appropriate type conversion
 - Invalid values will fall back to defaults without crashing
-- The Anthropic API will validate the parameters at request time
+- The Gemini API validates sampling parameters at request time
 - Top-p and top-k can be used together or independently
+
+## S3 Input Configuration
+
+The app can also load input directly from Amazon S3 by sending an object URI
+like `s3://bucket/path/file.pdf` or a prefix ending in `/`.
+
+```env
+AWS_REGION=us-east-1
+AWS_PROFILE=default
+```
+
+- `AWS_REGION` sets the default region for S3 requests when the UI/API request
+  does not provide one explicitly.
+- `AWS_PROFILE` selects a named local AWS profile for `boto3`.
+- Standard AWS credential resolution still works (`aws configure`, environment
+  variables, IAM role, or container/task credentials).

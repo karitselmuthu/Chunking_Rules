@@ -48,6 +48,9 @@ import os
 import re
 from pathlib import Path
 from typing import Callable
+from urllib import error as urlerror
+from urllib import parse as urlparse
+from urllib import request as urlrequest
 
 from dotenv import load_dotenv
 
@@ -89,7 +92,7 @@ STRATEGIES: dict[str, dict] = {
     },
     "agentic": {
         "name": "Agentic Chunking",
-        "description": "An LLM (Claude) reads the text, breaks it into self-contained propositions and groups them into coherent chunks. Falls back to a rule-based version without an API key.",
+        "description": "An LLM (Gemini) reads the text, breaks it into self-contained propositions and groups them into coherent chunks. Falls back to a rule-based version without an API key.",
         "defaults": {"chunk_size": 1000, "chunk_overlap": 0},
         "needs": "llm",
     },
@@ -397,7 +400,7 @@ def document_chunk(
 
 
 # ===========================================================================
-# 5. Agentic (Claude, with rule-based fallback)
+# 5. Agentic (Gemini, with rule-based fallback)
 # ===========================================================================
 _AGENTIC_CHAR_LIMIT = 15000
 _AGENTIC_PROMPT = (
@@ -414,9 +417,9 @@ def agentic_chunk(
     chunk_overlap: int = 0,
     source_name: str = "document",
 ) -> dict:
-    """Use an LLM (Claude) to break ``text`` into self-contained, coherent chunks.
+    """Use an LLM (Gemini) to break ``text`` into self-contained, coherent chunks.
 
-    Uses Claude when ``ANTHROPIC_API_KEY`` is set; otherwise falls back to a
+    Uses Gemini when ``GEMINI_API_KEY`` is set; otherwise falls back to a
     deterministic sentence-grouping heuristic so the call always succeeds.
     
     Sampling parameters can be configured via environment variables:
@@ -428,43 +431,70 @@ def agentic_chunk(
     if not text:
         return _finalize("agentic", [], chunk_size, chunk_overlap)
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        chunks = _agentic_fallback(text, chunk_size, "No ANTHROPIC_API_KEY set — used rule-based grouping.")
+    gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    if not gemini_api_key:
+        chunks = _agentic_fallback(text, chunk_size, "No GEMINI_API_KEY set — used rule-based grouping.")
         return _finalize("agentic", chunks, chunk_size, chunk_overlap)
 
     body = text[:_AGENTIC_CHAR_LIMIT]
     truncated = len(text) > _AGENTIC_CHAR_LIMIT
     try:
-        import anthropic
+        model = os.environ.get("CHUNKING_LLM_MODEL", "gemini-2.5-flash")
 
-        client = anthropic.Anthropic()
-        model = os.environ.get("CHUNKING_LLM_MODEL", "claude-sonnet-5")
-        
-        # Read top-p and top-k from environment with defaults
+        # Read top-p and top-k from environment with defaults.
         top_p = float(os.environ.get("CHUNKING_LLM_TOP_P", "1.0"))
         top_k = int(os.environ.get("CHUNKING_LLM_TOP_K", "0"))
-        
-        # Build the messages.create kwargs, only including top_p/top_k if they're non-default
-        msg_kwargs = {
-            "model": model,
-            "max_tokens": 4096,
-            "messages": [{"role": "user", "content": _AGENTIC_PROMPT.format(size=chunk_size, body=body)}],
-        }
-        
+
+        generation_config: dict[str, int | float] = {"maxOutputTokens": 4096}
         if top_p != 1.0:
-            msg_kwargs["top_p"] = top_p
+            generation_config["topP"] = top_p
         if top_k > 0:
-            msg_kwargs["top_k"] = top_k
-        
-        msg = client.messages.create(**msg_kwargs)
-        raw = "".join(b.text for b in msg.content if getattr(b, "type", None) == "text")
+            generation_config["topK"] = top_k
+
+        normalized_model = model.removeprefix("models/")
+        endpoint = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{urlparse.quote(normalized_model, safe='')}:generateContent"
+            f"?key={urlparse.quote(gemini_api_key, safe='')}"
+        )
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": _AGENTIC_PROMPT.format(size=chunk_size, body=body)}],
+                }
+            ],
+            "generationConfig": generation_config,
+        }
+        req = urlrequest.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlrequest.urlopen(req, timeout=60) as response:
+            body_json = json.loads(response.read().decode("utf-8"))
+
+        raw = ""
+        for candidate in body_json.get("candidates", []):
+            content = candidate.get("content", {})
+            for part in content.get("parts", []):
+                if isinstance(part.get("text"), str):
+                    raw += part["text"]
+
         pieces = _extract_json_array(raw)
         if not pieces:
             chunks = _agentic_fallback(text, chunk_size, "LLM returned no parseable chunks — used fallback.")
             return _finalize("agentic", chunks, chunk_size, chunk_overlap)
-        chunks = [_chunk(i, p, {"source": f"Claude ({model})"}) for i, p in enumerate(pieces)]
+        chunks = [_chunk(i, p, {"source": f"Gemini ({normalized_model})"}) for i, p in enumerate(pieces)]
         if truncated:
             chunks.append(_chunk(len(chunks), text[_AGENTIC_CHAR_LIMIT:], {"note": "Tail beyond LLM char limit, appended verbatim."}))
+        return _finalize("agentic", chunks, chunk_size, chunk_overlap)
+    except urlerror.HTTPError as exc:
+        chunks = _agentic_fallback(text, chunk_size, f"Gemini API error ({exc.code}) — used fallback.")
+        return _finalize("agentic", chunks, chunk_size, chunk_overlap)
+    except urlerror.URLError as exc:
+        chunks = _agentic_fallback(text, chunk_size, f"Gemini network error ({exc.reason}) — used fallback.")
         return _finalize("agentic", chunks, chunk_size, chunk_overlap)
     except Exception as exc:  # noqa: BLE001 - never let a tool call crash on LLM issues
         chunks = _agentic_fallback(text, chunk_size, f"LLM error ({exc}) — used fallback.")

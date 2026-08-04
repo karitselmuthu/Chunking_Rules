@@ -6,7 +6,7 @@ any agent framework can discover and call them.
 
 Quick use
 ---------
-    from tools import TOOL_SCHEMAS, call_tool, anthropic_tools
+    from tools import TOOL_SCHEMAS, call_tool, llm_tools
 
     # 1) Framework-agnostic: list of {name, description, input_schema}
     TOOL_SCHEMAS
@@ -14,8 +14,8 @@ Quick use
     # 2) Call one by name with keyword args (validated, JSON-serialisable out)
     result = call_tool("fixed_size_chunk", text="...", chunk_size=800)
 
-    # 3) Hand straight to Claude's Messages API:
-    client.messages.create(model=..., tools=anthropic_tools(), messages=[...])
+    # 3) Hand straight to any provider API that accepts tool schemas:
+    client.messages.create(model=..., tools=llm_tools(), messages=[...])
 
 Each tool name is the function name (e.g. ``semantic_chunk``), so an agent can
 map a tool-use request directly onto ``call_tool(name, **arguments)``.
@@ -150,8 +150,8 @@ def call_tool(name: str, **arguments: Any) -> dict:
     return fn(**arguments)
 
 
-def anthropic_tools() -> list[dict]:
-    """Tool definitions shaped for Claude's Messages API (`tools=`)."""
+def llm_tools() -> list[dict]:
+    """Provider-neutral tool definitions shaped for LLM tool-call APIs."""
     return [
         {"name": t["name"], "description": t["description"], "input_schema": t["input_schema"]}
         for t in TOOL_SCHEMAS

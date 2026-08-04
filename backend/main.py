@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 import chunkers
 import parsers
 import privacy
+import s3_loader
 from models import ChunkResponse, StrategyInfo
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
@@ -50,6 +51,8 @@ async def chunk(
     chunk_overlap: int = Form(...),
     file: UploadFile | None = File(None),
     text: str | None = Form(None),
+    s3_uri: str | None = Form(None),
+    s3_region: str | None = Form(None),
 ) -> ChunkResponse:
     if strategy not in chunkers.STRATEGIES:
         raise HTTPException(400, f"Unknown strategy '{strategy}'.")
@@ -58,8 +61,18 @@ async def chunk(
     if chunk_overlap < 0 or chunk_overlap >= chunk_size:
         raise HTTPException(400, "Chunk overlap must be >= 0 and < chunk size.")
 
+    has_file = file is not None and bool(file.filename)
+    has_text = bool(text and text.strip())
+    has_s3 = bool(s3_uri and s3_uri.strip())
+    source_count = int(has_file) + int(has_text) + int(has_s3)
+
+    if source_count == 0:
+        raise HTTPException(400, "Provide a file, some text, or an S3 URI to chunk.")
+    if source_count > 1:
+        raise HTTPException(400, "Provide exactly one input source: file, text, or S3 URI.")
+
     filename = "Pasted text"
-    if file is not None and file.filename:
+    if has_file:
         data = await file.read()
         try:
             document_text = parsers.parse_file(file.filename, data)
@@ -70,10 +83,61 @@ async def chunk(
                 f"empty, password-protected, or not a real PDF/DOCX ({exc}).",
             ) from exc
         filename = file.filename
-    elif text and text.strip():
+    elif has_text:
         document_text = text
     else:
-        raise HTTPException(400, "Provide a file or some text to chunk.")
+        def _parse_s3_folder(folder_uri: str) -> str:
+            try:
+                s3_documents = s3_loader.fetch_s3_documents(folder_uri, s3_region)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(422, str(exc)) from exc
+
+            parsed_docs: list[str] = []
+            for object_uri, s3_filename, s3_data in s3_documents:
+                try:
+                    parsed_text = parsers.parse_file(s3_filename, s3_data)
+                except Exception as exc:  # noqa: BLE001 — mirror file parse error behavior
+                    raise HTTPException(
+                        422,
+                        f"Could not parse '{object_uri}'. The object may be corrupt, "
+                        f"empty, encrypted, or unsupported ({exc}).",
+                    ) from exc
+                if parsed_text.strip():
+                    parsed_docs.append(f"\n\n### Source: {object_uri}\n\n{parsed_text.strip()}")
+
+            if not parsed_docs:
+                raise HTTPException(422, f"No extractable text found under '{folder_uri}'.")
+            return "".join(parsed_docs).strip()
+
+        s3_uri_value = s3_uri.strip()
+        if s3_uri_value.endswith("/"):
+            document_text = _parse_s3_folder(s3_uri_value)
+            filename = s3_uri_value
+        else:
+            try:
+                s3_filename, s3_data = s3_loader.fetch_s3_document(s3_uri_value, s3_region)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except RuntimeError as exc:
+                # Friendly fallback: treat "s3://bucket/prefix" as folder mode when a key is missing.
+                if "NoSuchKey" in str(exc):
+                    folder_uri = f"{s3_uri_value}/"
+                    document_text = _parse_s3_folder(folder_uri)
+                    filename = folder_uri
+                else:
+                    raise HTTPException(422, str(exc)) from exc
+            else:
+                try:
+                    document_text = parsers.parse_file(s3_filename, s3_data)
+                except Exception as exc:  # noqa: BLE001 — mirror file parse error behavior
+                    raise HTTPException(
+                        422,
+                        f"Could not parse '{s3_uri_value}'. The object may be corrupt, "
+                        f"empty, encrypted, or unsupported ({exc}).",
+                    ) from exc
+                filename = s3_uri_value
 
     if not document_text.strip():
         raise HTTPException(422, "Could not extract any text from the input.")

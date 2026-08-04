@@ -59,7 +59,7 @@
   "gradient"/"interquartile" breakpoint methods. **Effort: M**
 
 ### 1.5 🟡 Agentic chunking: single call, hard 15k-char truncation
-- **Now:** `agentic_chunk` sends at most `_AGENTIC_CHAR_LIMIT = 15000` chars to Claude in one call;
+- **Now:** `agentic_chunk` sends at most `_AGENTIC_CHAR_LIMIT = 15000` chars to Gemini in one call;
   the tail is appended **verbatim as one chunk**, unprocessed. No validation that returned chunks
   respect `chunk_size`; no retry on malformed JSON beyond a single fallback.
 - **Why it matters:** Long documents are only partially "agentically" chunked; the verbatim tail

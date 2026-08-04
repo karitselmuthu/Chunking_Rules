@@ -31,8 +31,8 @@ import chunkers
 import privacy
 import tools
 
-# Load ANTHROPIC_API_KEY etc. from the project .env, matching the FastAPI app,
-# so agentic_chunk can use Claude when a key is configured.
+# Load GEMINI_API_KEY etc. from the project .env, matching the FastAPI app,
+# so agentic_chunk can use Gemini when a key is configured.
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 mcp = FastMCP(

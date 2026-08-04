@@ -1,0 +1,24 @@
+# Credentials / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.secret
+secrets.*
+*.credentials
+
+# Python artifacts
+__pycache__/
+*.pyc
+
+# Local environments
+.venv/
+path/to/venv/
+
+# OS artifacts
+.DS_Store

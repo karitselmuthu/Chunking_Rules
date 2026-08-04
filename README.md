@@ -1,6 +1,6 @@
 # 🧩 Chunking Rules
 
-A single-page app to upload a document, pick one of **ten chunking strategies**, tune **Chunk Size** and **Chunk Overlap** (each strategy ships sensible defaults), and see exactly how the text is split.
+A single-page app to upload a document (or load one from **Amazon S3**), pick one of **ten chunking strategies**, tune **Chunk Size** and **Chunk Overlap** (each strategy ships sensible defaults), and see exactly how the text is split.
 
 Built with a **FastAPI** backend (real embeddings + real LLM) and a **vanilla-JS** frontend — no build step.
 
@@ -12,7 +12,7 @@ Built with a **FastAPI** backend (real embeddings + real LLM) and a **vanilla-JS
 | Recursive | Splits on paragraph → line → sentence → word | LangChain |
 | Semantic | New chunk where sentence-embedding similarity drops | MiniLM embeddings |
 | Document-Based | Follows Markdown headings / sections | strings |
-| Agentic | Claude decomposes text into coherent chunks | **Claude API** |
+| Agentic | Gemini decomposes text into coherent chunks | **Gemini API** |
 | Context-Enriched | Chunks prefixed with document/section metadata | strings |
 | Sliding Window | Sentence-aligned overlapping windows | strings |
 | Hierarchical | Parent chunks split into nested children | LangChain |
@@ -38,7 +38,21 @@ uvicorn main:app --reload --port 8000
 Then open **http://localhost:8000**.
 
 - First use of **Semantic** or **Late** downloads the MiniLM model (~90 MB) once.
-- **Agentic** uses Claude when `ANTHROPIC_API_KEY` is set; otherwise it automatically falls back to a rule-based grouping, so the app always works.
+- **Agentic** uses Gemini when `GEMINI_API_KEY` is set; otherwise it automatically falls back to a rule-based grouping, so the app always works.
+
+## Load documents from S3 (local app → AWS region)
+
+The UI supports direct S3 input:
+- Enter an object path like `s3://my-bucket/docs/manual.pdf`
+- Or enter a folder/prefix ending with `/`, like `s3://my-bucket/docs/day03_08_26/`
+- Optionally provide an AWS region (for example `us-east-1`)
+
+For folder/prefix input, the app loads all supported document objects under that
+prefix (`.pdf`, `.docx`, `.txt`, `.md`, `.markdown`, `.text`) and chunks the
+combined corpus.
+
+Credential resolution uses the normal AWS SDK chain (`aws configure`, env vars,
+IAM role, or `AWS_PROFILE`).
 
 ## Share the running app (Cloudflare Tunnel)
 
@@ -53,7 +67,7 @@ brew install cloudflared
 # 2) start the app WITHOUT an API key so visitors can't spend your credits
 #    (Agentic falls back to rule-based; every other strategy works fully)
 cd backend
-env -u ANTHROPIC_API_KEY ../.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+env -u GEMINI_API_KEY ../.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
 
 # 3) in a second terminal, open the public tunnel
 cloudflared tunnel --url http://localhost:8000
@@ -78,12 +92,16 @@ For a **stable** URL that survives restarts, create a named tunnel instead
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Enables real Agentic chunking | *(unset → rule-based fallback)* |
-| `CHUNKING_LLM_MODEL` | Claude model for Agentic | `claude-sonnet-5` |
+| `GEMINI_API_KEY` | Enables real Agentic chunking | *(unset → rule-based fallback)* |
+| `CHUNKING_LLM_MODEL` | Gemini model for Agentic | `gemini-2.5-flash` |
 | `CHUNKING_EMBED_MODEL` | sentence-transformers model | `all-MiniLM-L6-v2` |
+| `CHUNKING_LLM_TOP_P` | Agentic sampling top-p | `1.0` |
+| `CHUNKING_LLM_TOP_K` | Agentic sampling top-k (`0` = off) | `0` |
+| `AWS_REGION` | Default AWS region for S3 fetches | *(unset)* |
+| `AWS_PROFILE` | Named AWS profile to use for S3 fetches | *(unset)* |
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export GEMINI_API_KEY=AIza...
 ```
 
 ## Each strategy is a standalone, agent-callable function
@@ -115,7 +133,7 @@ The ten functions: `fixed_size_chunk`, `recursive_chunk`, `semantic_chunk`,
 dispatcher — ready for any agent framework:
 
 ```python
-from tools import TOOL_SCHEMAS, call_tool, anthropic_tools
+from tools import TOOL_SCHEMAS, call_tool, llm_tools
 
 # Framework-agnostic descriptors: [{name, strategy_id, description, input_schema}]
 TOOL_SCHEMAS
@@ -123,8 +141,8 @@ TOOL_SCHEMAS
 # Invoke by tool name or strategy id, with keyword args:
 out = call_tool("semantic_chunk", text="...", chunk_size=1200)
 
-# Hand straight to Claude's Messages API:
-client.messages.create(model="claude-sonnet-5", tools=anthropic_tools(), messages=[...])
+# Hand straight to an LLM API that accepts tool schemas:
+client.messages.create(model="gemini-2.5-flash", tools=llm_tools(), messages=[...])
 # ...then on a tool_use block: call_tool(block.name, **block.input)
 ```
 
