@@ -148,6 +148,22 @@ client.messages.create(model="gemini-2.5-flash", tools=llm_tools(), messages=[..
 
 Run `python backend/tools.py` to list the tools and see a demo call.
 
+## Use in Langflow
+
+`langflow_components/chunking_rules_component.py` wraps all ten strategies as
+a single Langflow component (a "Strategy" dropdown, so you don't need ten
+separate nodes). It calls the same `tools.call_tool` dispatcher as the MCP
+server, so the PII/PCI guardrail applies there too.
+
+```bash
+pip install langflow
+langflow run --components-path /ABS/PATH/langflow_components
+```
+
+Then drag the **Chunking Rules** component into a flow, set `text` (or wire
+it from another node) and `strategy`, and connect its `Chunks` output
+(a `Data` object with `chunks` + `stats`) onward.
+
 ## Use from other agents (MCP server)
 
 `backend/mcp_server.py` exposes all ten chunkers as a **Model Context Protocol**
@@ -228,5 +244,7 @@ Chunking_Rules/
 │   └── models.py      # response schemas
 ├── frontend/
 │   └── index.html     # the single-page UI
+├── langflow_components/
+│   └── chunking_rules_component.py  # all 10 strategies as one Langflow node
 └── requirements.txt
 ```
