@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +27,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def register_with_central_api() -> None:
+    """Ping central-mac-api on boot and pull every *_API_KEY it holds
+    (GEMINI_API_KEY, SARVAM_API_KEY, OMNIROUTE_API_KEY, ...) into our own
+    environment, so this app's provider keys are sourced from central-mac-api
+    rather than local copies. Falls back to whatever's already in this app's
+    own .env (or the rule-based Agentic fallback) if central-mac-api is
+    unreachable.
+    """
+    base_url = os.getenv("CENTRAL_API_URL")
+    api_key = os.getenv("CENTRAL_API_KEY")
+    if not base_url or not api_key:
+        return
+    headers = {"x-client-app-name": "Chunking-Rules", "x-api-key": api_key}
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            await client.get(f"{base_url}/api/status", headers=headers)
+            resp = await client.get(f"{base_url}/api/keys", headers=headers)
+            if resp.status_code == 200:
+                os.environ.update(resp.json().get("keys", {}))
+    except httpx.HTTPError:
+        pass  # central-mac-api may not be running locally; not a hard dependency
 
 
 @app.get("/api/strategies", response_model=list[StrategyInfo])

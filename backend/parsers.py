@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import unicodedata
 
 
 def parse_file(filename: str, data: bytes) -> str:
@@ -21,7 +22,16 @@ def _parse_pdf(data: bytes) -> str:
 
     reader = PdfReader(io.BytesIO(data))
     pages = [page.extract_text() or "" for page in reader.pages]
-    return "\n\n".join(pages).strip()
+    return _strip_unprintable("\n\n".join(pages)).strip()
+
+
+def _strip_unprintable(text: str) -> str:
+    # Icon fonts used for bullets/glyphs in slide-deck PDFs extract as
+    # private-use/control codepoints that render as tofu boxes; drop them.
+    return "".join(
+        ch for ch in text
+        if ch in "\n\t" or unicodedata.category(ch)[0] != "C"
+    )
 
 
 def _parse_docx(data: bytes) -> str:
