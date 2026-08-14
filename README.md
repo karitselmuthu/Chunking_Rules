@@ -93,7 +93,7 @@ For a **stable** URL that survives restarts, create a named tunnel instead
 | Variable | Purpose | Default |
 |---|---|---|
 | `GEMINI_API_KEY` | Enables real Agentic chunking | *(unset → rule-based fallback)* |
-| `CHUNKING_LLM_MODEL` | Gemini model for Agentic | `gemini-2.5-flash` |
+| `CHUNKING_LLM_MODEL` | Gemini model for Agentic | `gemini-flash-latest` |
 | `CHUNKING_EMBED_MODEL` | sentence-transformers model | `all-MiniLM-L6-v2` |
 | `CHUNKING_LLM_TOP_P` | Agentic sampling top-p | `1.0` |
 | `CHUNKING_LLM_TOP_K` | Agentic sampling top-k (`0` = off) | `0` |
@@ -150,14 +150,14 @@ Run `python backend/tools.py` to list the tools and see a demo call.
 
 ## Use in Langflow
 
-`langflow_components/chunking_rules_component.py` wraps all ten strategies as
+`langflow_components/chunking/chunking_rules_component.py` wraps all ten strategies as
 a single Langflow component (a "Strategy" dropdown, so you don't need ten
 separate nodes). It calls the same `tools.call_tool` dispatcher as the MCP
 server, so the PII/PCI guardrail applies there too.
 
 ```bash
 pip install langflow
-langflow run --components-path /ABS/PATH/langflow_components
+PYTHONPATH=backend langflow run --components-path langflow_components
 ```
 
 Then drag the **Chunking Rules** component into a flow, set `text` (or wire

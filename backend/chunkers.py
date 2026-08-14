@@ -439,13 +439,16 @@ def agentic_chunk(
     body = text[:_AGENTIC_CHAR_LIMIT]
     truncated = len(text) > _AGENTIC_CHAR_LIMIT
     try:
-        model = os.environ.get("CHUNKING_LLM_MODEL", "gemini-2.5-flash")
+        model = os.environ.get("CHUNKING_LLM_MODEL", "gemini-flash-latest")
 
         # Read top-p and top-k from environment with defaults.
         top_p = float(os.environ.get("CHUNKING_LLM_TOP_P", "1.0"))
         top_k = int(os.environ.get("CHUNKING_LLM_TOP_K", "0"))
 
-        generation_config: dict[str, int | float] = {"maxOutputTokens": 4096}
+        # 16384, not 4096: gemini-flash-latest is a thinking model that spends part
+        # of maxOutputTokens on hidden reasoning before writing the visible JSON, so
+        # a tight budget truncates the array mid-output on anything but trivial input.
+        generation_config: dict[str, int | float] = {"maxOutputTokens": 16384}
         if top_p != 1.0:
             generation_config["topP"] = top_p
         if top_k > 0:

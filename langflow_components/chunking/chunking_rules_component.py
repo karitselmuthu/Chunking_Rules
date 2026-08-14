@@ -5,20 +5,36 @@ it just calls into ``backend/tools.py``'s existing ``call_tool`` dispatcher,
 so the PII/PCI privacy guardrail and input validation run exactly like they
 do for the API and the MCP server.
 
-Install into a Langflow instance: point its custom components path at this
-directory (or copy the file in), e.g.:
+How to use
+----------
+1. This file must live one directory level under the components root (e.g.
+   ``langflow_components/chunking/chunking_rules_component.py``) — Langflow's
+   loader only scans ``<components-path>/<category>/*.py``, not the root
+   itself, so a flat file directly in ``langflow_components/`` is silently
+   never discovered.
+2. Run Langflow pointed at the components root, with ``backend/`` on ``PYTHONPATH``
+   (Langflow executes this file's code standalone, so it doesn't inherit
+   this repo's normal relative-import setup):
 
-    langflow run --components-path /ABS/PATH/langflow_components
+       PYTHONPATH=backend langflow run --components-path langflow_components
+
+3. In the Langflow UI you'll see a **Chunking Rules** node (search "Chunking").
+4. Drag it into a flow and connect it to:
+   - an Input node (feeds ``text``)
+   - a **Strategy** dropdown already on the node itself — pick any of the
+     ten: fixed, recursive, semantic, document, agentic, context, sliding,
+     hierarchical, late, hybrid (agentic needs ``GEMINI_API_KEY`` in
+     ``.env``; semantic/late download the MiniLM embedding model on first use)
+   - a downstream node (Vector Store / Output) reading the ``Chunks``
+     output's ``data["chunks"]`` and ``data["stats"]``
+
+No need to duplicate this file per strategy — the dropdown swaps strategies
+without adding nodes.
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
-
-import chunkers  # noqa: E402
-import tools  # noqa: E402
+import chunkers
+import tools
 
 from langflow.custom import Component  # noqa: E402
 from langflow.io import DropdownInput, IntInput, MessageTextInput, Output  # noqa: E402
